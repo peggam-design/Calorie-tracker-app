@@ -14,8 +14,8 @@ export async function parseMealFromText(input: string): Promise<ParsedMeal[]> {
   if (OPENAI_KEY) {
     try {
       const result = await askOpenAI(
-        `You are a nutrition expert. Parse meal descriptions and estimate calories based on portion sizes. Understand natural language like "small piece", "huge bowl", "a bit of", "heaping plate". Return ONLY valid JSON array (no markdown): [{ "name": string, "calories": number, "notes": string, "confidence": "low"|"medium"|"high" }]. Account for portion size words (small=70%, normal=100%, large=140%, huge=180%). notes should describe what you inferred about portions.`,
-        `Parse this meal description and estimate calories: "${input}"`
+        `You are a nutrition expert. The user is describing ONE single meal — even if it has multiple ingredients. Never split it into separate entries. Return ONLY a JSON array with exactly ONE item (no markdown): [{ "name": string, "calories": number, "notes": string, "confidence": "low"|"medium"|"high" }]. The name should be a clean summary of the whole meal. Account for portion words: small=70%, normal=100%, large=140%, huge=180% of typical calories.`,
+        `This is ONE meal, return ONE entry. Estimate total calories: "${input}"`
       );
       const parsed = JSON.parse(result);
       return Array.isArray(parsed) ? parsed : [parsed];
@@ -42,7 +42,7 @@ export async function estimateCaloriesFromText(mealName: string): Promise<{ calo
   if (OPENAI_KEY) {
     try {
       const result = await askOpenAI(
-        `You are a nutrition expert. Estimate calories for meals. Understand portion descriptions like "small", "large", "a bit of", "heaping". Return ONLY valid JSON (no markdown): { "calories": number, "breakdown": string, "confidence": "low"|"medium"|"high" }`,
+        `You are a nutrition expert. Estimate calories for meals. Understand portion descriptions. Return ONLY valid JSON (no markdown): { "calories": number, "breakdown": string, "confidence": "low"|"medium"|"high" }`,
         `Estimate calories for: "${mealName}"`
       );
       return JSON.parse(result);
@@ -68,7 +68,6 @@ export async function analyzeFoodImage(imageFile: File): Promise<FoodAnalysisRes
   const mocks: FoodAnalysisResult[] = [
     { description: "Grilled chicken breast, steamed white rice, broccoli", estimatedCalories: 520, confidence: "high", items: [{ name: "Grilled chicken breast (150g)", calories: 248 }, { name: "Steamed white rice (1 cup)", calories: 206 }, { name: "Broccoli (100g)", calories: 55 }] },
     { description: "Caesar salad with croutons and parmesan", estimatedCalories: 380, confidence: "medium", items: [{ name: "Romaine lettuce", calories: 17 }, { name: "Caesar dressing", calories: 160 }, { name: "Croutons", calories: 120 }, { name: "Parmesan", calories: 61 }] },
-    { description: "Avocado toast with poached egg", estimatedCalories: 440, confidence: "high", items: [{ name: "Sourdough bread (2 slices)", calories: 180 }, { name: "Avocado (half)", calories: 160 }, { name: "Poached egg", calories: 78 }, { name: "Olive oil", calories: 40 }] },
   ];
   return mocks[Math.floor(Math.random() * mocks.length)];
 }
@@ -76,9 +75,9 @@ function mockEstimate(name: string): { calories: number; breakdown: string; conf
   const n = name.toLowerCase();
   const mod = n.includes("small")||n.includes("little")||n.includes("bit of") ? 0.7 : n.includes("huge")||n.includes("large")||n.includes("big")||n.includes("heaping") ? 1.5 : 1.0;
   const foods = [
-    { terms: ["chicken rice","rice bowl","chicken and rice"], cal: 520, info: "Chicken ~250 + rice ~200 + veg ~70" },
+    { terms: ["chicken rice","rice bowl"], cal: 520, info: "Chicken ~250 + rice ~200 + veg ~70" },
     { terms: ["chicken"], cal: 350, info: "Chicken breast ~350 kcal" },
-    { terms: ["salad"], cal: 250, info: "Greens + dressing ~250 kcal" },
+    { terms: ["salad"], cal: 350, info: "Salad with protein ~350 kcal" },
     { terms: ["pasta","spaghetti"], cal: 480, info: "Pasta ~300 + sauce ~180" },
     { terms: ["burger"], cal: 650, info: "Patty ~350 + bun ~150 + toppings ~150" },
     { terms: ["pizza"], cal: 700, info: "2 slices ~700 kcal" },
@@ -90,11 +89,10 @@ function mockEstimate(name: string): { calories: number; breakdown: string; conf
     { terms: ["smoothie"], cal: 320, info: "Fruit ~200 + liquid ~120" },
     { terms: ["soup"], cal: 200, info: "Broth-based soup ~200 kcal" },
     { terms: ["taco","burrito"], cal: 550, info: "Tortilla ~200 + filling ~350" },
-    { terms: ["sushi"], cal: 400, info: "Sushi rolls ~400 kcal" },
     { terms: ["latte","coffee"], cal: 150, info: "Milk-based coffee ~150 kcal" },
     { terms: ["apple","banana","fruit"], cal: 80, info: "Fresh fruit ~80 kcal" },
     { terms: ["potato","potatoes"], cal: 300, info: "Potatoes ~300 kcal" },
-    { terms: ["rice"], cal: 200, info: "Rice (1 cup) ~200 kcal" },
+    { terms: ["chia"], cal: 120, info: "Chia seeds ~60 + milk ~60 kcal" },
   ];
   for (const f of foods) {
     if (f.terms.some(t => n.includes(t))) return { calories: Math.round(f.cal * mod), breakdown: `${f.info} (portion adjusted)`, confidence: "medium" };

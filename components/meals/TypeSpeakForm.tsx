@@ -6,7 +6,6 @@ import { Mic, MicOff, Sparkles, Loader2, Check, X, ArrowLeft, Trash2, MessageSqu
 import { cn } from "@/lib/utils";
 
 interface Props { today: string; onSaved: () => void; onCancel: () => void; }
-declare global { interface Window { SpeechRecognition: any; webkitSpeechRecognition: any; } }
 type InputMode = "single" | "bulk";
 type Stage = "input" | "review";
 
@@ -22,15 +21,20 @@ export default function TypeSpeakForm({ today, onSaved, onCancel }: Props) {
   const recRef = useRef<any>(null);
 
   function toggleVoice() {
-    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SR) { setError("Voice not supported — try Chrome"); return; }
+    const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SR) {
+      setError("Voice input requires Chrome on desktop or Safari on iPhone. Tap the mic in your keyboard instead.");
+      return;
+    }
     if (listening) { recRef.current?.stop(); setListening(false); return; }
-    const rec = new SR();
-    rec.lang = "en-US"; rec.interimResults = false;
-    rec.onresult = (e: any) => { const t = e.results[0][0].transcript; setInput(prev => prev ? prev+" "+t : t); setListening(false); };
-    rec.onerror = () => setListening(false);
-    rec.onend = () => setListening(false);
-    recRef.current = rec; rec.start(); setListening(true);
+    try {
+      const rec = new SR();
+      rec.lang = "en-US"; rec.interimResults = false; rec.continuous = false;
+      rec.onresult = (e: any) => { const t = e.results[0][0].transcript; setInput(prev => prev ? prev+" "+t : t); setListening(false); };
+      rec.onerror = (e: any) => { if (e.error==="not-allowed") setError("Microphone access denied. Please allow mic access in your browser settings."); setListening(false); };
+      rec.onend = () => setListening(false);
+      recRef.current = rec; rec.start(); setListening(true);
+    } catch { setError("Voice input not available — type your meal instead."); setListening(false); }
   }
 
   async function handleParse() {
@@ -44,21 +48,20 @@ export default function TypeSpeakForm({ today, onSaved, onCancel }: Props) {
   }
 
   function updateMeal(i: number, field: keyof ParsedMeal, value: string|number) {
-    setParsedMeals(prev => prev.map((m, idx) => idx === i ? { ...m, [field]: value } : m));
+    setParsedMeals(prev => prev.map((m, idx) => idx===i ? { ...m, [field]: value } : m));
   }
 
-  function removeMeal(i: number) {
-    setParsedMeals(prev => prev.filter((_, idx) => idx !== i));
-  }
+  function removeMeal(i: number) { setParsedMeals(prev => prev.filter((_, idx) => idx!==i)); }
 
   async function handleSave() {
-    if (parsedMeals.length === 0) return setError("No meals to save");
+    if (parsedMeals.length===0) return setError("No meals to save");
     setSaving(true); setError(null);
     try {
       const time = new Date().toTimeString().slice(0,5);
       for (const meal of parsedMeals) {
         await addMeal({ name: meal.name, calories: meal.calories, notes: meal.notes||null, created_at: new Date(`${today}T${time}`).toISOString() });
       }
+      await new Promise(r => setTimeout(r, 300));
       onSaved();
     } catch (e: any) { setError(e.message||"Failed to save"); }
     finally { setSaving(false); }
@@ -66,7 +69,7 @@ export default function TypeSpeakForm({ today, onSaved, onCancel }: Props) {
 
   const cc = { low: "text-red-500", medium: "text-amber-500", high: "text-brand-600" };
 
-  if (stage === "input") {
+  if (stage==="input") {
     return (
       <div className="card p-4 animate-scale-in">
         <div className="flex items-center gap-2 mb-4">
@@ -75,11 +78,11 @@ export default function TypeSpeakForm({ today, onSaved, onCancel }: Props) {
           <button type="button" onClick={onCancel} className="p-1 rounded-lg hover:bg-gray-100 text-gray-400"><X className="w-4 h-4" /></button>
         </div>
 
-        <div className="flex bg-gray-100 rounded-xl p-1 mb-4 gap-1">
+        <div className="flex bg-gray-100 rounded-xl p-1 mb-3 gap-1">
           <button type="button" onClick={() => setInputMode("single")}
             className={cn("flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-xs font-medium transition-all",
               inputMode==="single" ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700")}>
-            <MessageSquare className="w-3.5 h-3.5" /> Single meal
+            <MessageSquare className="w-3.5 h-3.5" /> One meal
           </button>
           <button type="button" onClick={() => setInputMode("bulk")}
             className={cn("flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-xs font-medium transition-all",
@@ -90,28 +93,27 @@ export default function TypeSpeakForm({ today, onSaved, onCancel }: Props) {
 
         <p className="text-xs text-gray-400 mb-2">
           {inputMode==="single"
-            ? 'Describe naturally — e.g. "I had a small piece of grilled chicken and a huge rice bowl"'
-            : 'List all meals — e.g. "For breakfast cereal, for lunch a turkey sandwich, for dinner steak and potatoes"'}
+            ? 'Describe one meal — e.g. "salad with mixed greens, strawberries and salmon" — logged as a single meal'
+            : 'List all meals at once — e.g. "For breakfast cereal, for lunch turkey sandwich, for dinner steak and potatoes"'}
         </p>
 
         <textarea autoFocus value={input} onChange={(e) => setInput(e.target.value)} rows={4}
           placeholder={inputMode==="single"
-            ? "I had a small piece of chicken with a big side of rice..."
-            : "For breakfast I had a bowl of cereal, for lunch a turkey sandwich, for dinner steak and potatoes. I also had a latte and an apple..."}
+            ? "e.g. salad with mixed greens, strawberries and grilled salmon..."
+            : "e.g. For breakfast I had cereal, for lunch a turkey sandwich, for dinner steak and potatoes. Also a latte and an apple..."}
           className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 outline-none transition resize-none placeholder:text-gray-300"
         />
 
-        <div className="flex items-center gap-2 mt-2">
-          <button type="button" onClick={toggleVoice}
-            className={cn("flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-medium transition-all",
-              listening ? "bg-red-500 text-white" : "bg-gray-100 text-gray-600 hover:bg-brand-100 hover:text-brand-600")}>
-            {listening ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
-            {listening ? "Stop listening" : "Speak instead"}
-          </button>
-          {listening && <p className="text-xs text-red-500 flex items-center gap-1"><span className="w-2 h-2 bg-red-500 rounded-full animate-pulse inline-block" />Listening...</p>}
-        </div>
+        <button type="button" onClick={toggleVoice}
+          className={cn("w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-medium transition-all mt-2",
+            listening ? "bg-red-500 text-white" : "bg-brand-600 text-white hover:bg-brand-700")}>
+          {listening ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+          {listening ? "Tap to stop listening" : "🎤 Tap to speak"}
+        </button>
+        {listening && <p className="text-xs text-red-500 mt-1 text-center flex items-center justify-center gap-1"><span className="w-2 h-2 bg-red-500 rounded-full animate-pulse inline-block" />Listening… speak your meal</p>}
+        {!listening && <p className="text-xs text-gray-400 mt-1 text-center">On iPhone: tap the mic in your keyboard for best results</p>}
 
-        {error && <p className="text-xs text-red-500 mt-2">{error}</p>}
+        {error && <p className="text-xs text-red-500 mt-2 text-center">{error}</p>}
 
         <div className="flex gap-2 mt-4">
           <button type="button" onClick={onCancel} className="flex-1 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-600 hover:bg-gray-50 transition">Cancel</button>
@@ -129,7 +131,7 @@ export default function TypeSpeakForm({ today, onSaved, onCancel }: Props) {
     <div className="card p-4 animate-scale-in">
       <div className="flex items-center gap-2 mb-4">
         <button type="button" onClick={() => setStage("input")} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400"><ArrowLeft className="w-4 h-4" /></button>
-        <h3 className="text-sm font-semibold text-gray-900 flex-1">Review & edit meals</h3>
+        <h3 className="text-sm font-semibold text-gray-900 flex-1">Review & edit</h3>
         <button type="button" onClick={onCancel} className="p-1 rounded-lg hover:bg-gray-100 text-gray-400"><X className="w-4 h-4" /></button>
       </div>
 
@@ -146,7 +148,7 @@ export default function TypeSpeakForm({ today, onSaved, onCancel }: Props) {
                   <input type="number" value={meal.calories} onChange={(e) => updateMeal(i,"calories",parseInt(e.target.value)||0)}
                     className="w-24 px-2.5 py-1.5 bg-white border border-gray-200 rounded-lg text-sm font-mono outline-none focus:border-brand-400" />
                   <span className="text-xs text-gray-400">kcal</span>
-                  <span className={cn("text-xs ml-auto", cc[meal.confidence])}>{meal.confidence} confidence</span>
+                  <span className={cn("text-xs ml-auto", cc[meal.confidence])}>{meal.confidence}</span>
                 </div>
                 {meal.notes && <p className="text-xs text-gray-400 italic">{meal.notes}</p>}
               </div>
