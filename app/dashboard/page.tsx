@@ -1,6 +1,8 @@
 import DashboardClient from "@/components/meals/DashboardClient";
 import { toDateString } from "@/lib/db";
 
+export const dynamic = "force-dynamic";
+
 export default function DashboardPage() {
   const today = toDateString();
   const emptySummary = {
@@ -11,6 +13,5 @@ export default function DashboardPage() {
     totalBurned: 0,
     net: 0,
   };
-
   return <DashboardClient initialSummary={emptySummary} today={today} />;
 }
